@@ -63,9 +63,6 @@ var recordProcessor = {
    *             array of records that are to be processed. Looks like -
    *             {"records":[<record>, <record>], "checkpointer":<Checkpointer>}
    *             where <record> format is specified above.
-   * @param {Checkpointer} processRecordsInput.checkpointer - A checkpointer
-   *             which accepts a `string` or `null` sequence number and a
-   *             callback.
    * @param {callback} completeCallback - The callback that must be invoked
    *             once all records are processed and checkpoint (optional) is
    *             complete.
@@ -106,38 +103,43 @@ var recordProcessor = {
   },
 
   /**
-   * Called by KCL to indicate that this record processor should shut down.
-   * After shutdown operation is complete, there will not be any more calls to
-   * any other functions of this record processor. Note that reason
-   * could be either TERMINATE or ZOMBIE. If ZOMBIE, clients should not
-   * checkpoint because there is possibly another record processor which has
-   * acquired the lease for this shard. If TERMINATE, then
-   * `checkpointer.checkpoint()` should be called to checkpoint at the end of
-   * the shard so that this processor will be shut down and new processors
-   * will be created for the children of this shard.
-   *
-   * @param {object} shutdownInput - Shutdown information. Looks like -
-   *             {"reason":"<TERMINATE|ZOMBIE>", "checkpointer":<Checkpointer>}
-   * @param {Checkpointer} shutdownInput.checkpointer - A checkpointer which
-   *             accepts a `string` or `null` sequence number and a callback.
-   * @param {callback} completeCallback - The callback that must be invoked
-   *             once shutdown-related operations are complete and checkpoint
-   *             (optional) is complete.
-   */
-  shutdown: function(shutdownInput, completeCallback) {
-    // Shutdown logic ...
+  * Called by the KCL to indicate that this record processor should shut down.
+  * After the lease lost operation is complete, there will not be any more calls to
+  * any other functions of this record processor. Clients should not attempt to
+  * checkpoint because the lease has been lost by this Worker.
+  * 
+  * @param {object} leaseLostInput - Lease lost information.
+  * @param {callback} completeCallback - The callback must be invoked once lease
+  *               lost operations are completed.
+  */
+  leaseLost: function(leaseLostInput, completeCallback) {
+    // Lease lost logic ...
+    completeCallback();
+  },
 
-    if (shutdownInput.reason !== 'TERMINATE') {
-      completeCallback();
-      return;
-    }
+  /**
+  * Called by the KCL to indicate that this record processor should shutdown.
+  * After the shard ended operation is complete, there will not be any more calls to
+  * any other functions of this record processor. Clients are required to checkpoint
+  * at this time. This indicates that the current record processor has finished
+  * processing and new record processors for the children will be created.
+  * 
+  * @param {object} shardEndedInput - ShardEnded information. Looks like -
+  *               {"checkpointer": <Checpointer>}
+  * @param {callback} completeCallback - The callback must be invoked once shard
+  *               ended operations are completed.
+  */
+  shardEnded: function(shardEndedInput, completeCallback) {
+    // Shard end logic ...
+    
     // Since you are checkpointing, only call completeCallback once the checkpoint
     // operation is complete.
-    shutdownInput.checkpointer.checkpoint(function(err) {
-      // In this example, regardless of error, we mark the shutdown operation
+    shardEndedInput.checkpointer.checkpoint(function(err) {
+      // In this example, regardless of the error, we mark the shutdown operation
       // complete.
       completeCallback();
     });
+    completeCallback();
   }
 };
 
@@ -271,6 +273,38 @@ In this release, we have abstracted these implementation details away and expose
 
 
 ## Release Notes
+
+### Release 2.0.0 (March 6, 2019)
+* Added support for [Enhanced Fan-Out](https://aws.amazon.com/blogs/aws/kds-enhanced-fanout/).  
+  Enhanced Fan-Out provides dedicated throughput per stream consumer, and uses an HTTP/2 push API (SubscribeToShard) to deliver records with lower latency.
+* Updated the Amazon Kinesis Client Library for Java to version 2.1.2.
+  * Version 2.1.2 uses 4 additional Kinesis API's  
+    __WARNING: These additional API's may require updating any explicit IAM policies__
+    * [`RegisterStreamConsumer`](https://docs.aws.amazon.com/kinesis/latest/APIReference/API_RegisterStreamConsumer.html)
+    * [`SubscribeToShard`](https://docs.aws.amazon.com/kinesis/latest/APIReference/API_SubscribeToShard.html)
+    * [`DescribeStreamConsumer`](https://docs.aws.amazon.com/kinesis/latest/APIReference/API_DescribeStreamConsumer.html)
+    * [`DescribeStreamSummary`](https://docs.aws.amazon.com/kinesis/latest/APIReference/API_DescribeStreamSummary.html)
+  * For more information about Enhanced Fan-Out with the Amazon Kinesis Client Library please see the [announcement](https://aws.amazon.com/blogs/aws/kds-enhanced-fanout/) and [developer documentation](https://docs.aws.amazon.com/streams/latest/dev/introduction-to-enhanced-consumers.html).
+* Added support for the newer methods to the [`KCLManager`](https://github.com/awslabs/amazon-kinesis-client-nodejs/blob/a2be81a3bd4ccca7f68b616ebc416192c3be9d0e/lib/kcl/kcl_manager.js).  
+  While the original `shutdown` method will continue to work it's recommended to upgrade to the newer interface.
+  * The `shutdown` has been replaced by `leaseLost` and `shardEnded`.
+  * Added the `leaseLost` method which is invoked when a lease is lost.  
+    `leaseLost` replaces `shutdown` where `shutdownInput.reason` was `ZOMBIE`.
+  * Added the `shardEnded` method which is invoked when all records from a split or merge have been processed.  
+    `shardEnded`  replaces `shutdown` where `shutdownInput.reason` was `TERMINATE`.
+* Updated the AWS Java SDK version to 2.4.0
+* MultiLangDaemon now provides logging using Logback.
+  * MultiLangDaemon supports custom configurations for logging via a Logback XML configuration file.
+  * The `kcl-bootstrap` program was been updated to accept either `-l` or `--log-configuration` to provide a Logback XML configuration file.
+
+### Release 0.8.0 (February 12, 2019)
+* Updated the dependency on [Amazon Kinesis Client for Java][amazon-kcl-github] to 1.9.3
+  * This adds support for ListShards API. This API is used in place of DescribeStream API to provide more throughput during ShardSyncTask. Please consult the [AWS Documentation for ListShards](https://docs.aws.amazon.com/kinesis/latest/APIReference/API_ListShards.html) for more information.
+    * ListShards supports higher call rate, which should reduce instances of throttling when attempting to synchronize the shard list.
+    * __WARNING: `ListShards` is a new API, and may require updating any explicit IAM policies__
+  * [PR #59](https://github.com/awslabs/amazon-kinesis-client-nodejs/pull/59)
+* Changed to now download jars from Maven using `https`.
+  * [PR #59](https://github.com/awslabs/amazon-kinesis-client-nodejs/pull/59)
 
 ### Release 0.7.0 (August 2, 2017)
 * Updated the dependency on [Amazon Kinesis Client for Java][amazon-kcl-github] to 1.8.1.  
