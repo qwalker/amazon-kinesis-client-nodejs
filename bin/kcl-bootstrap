@@ -147,7 +147,7 @@ function parseArguments() {
 }
 
 function startKinesisClientLibraryApplication(options) {
-  var classpath = '-cp ' + getClasspath(options).join(getPathDelimiter());
+  var classpath = getClasspath(options).join(getPathDelimiter());
   var java = options.java;
   var propertiesFile = '--properties-file ' + options.properties;
   var logConfiguration = '';
