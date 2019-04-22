@@ -154,7 +154,9 @@ function startKinesisClientLibraryApplication(options) {
   if (options.logConfiguration) {
     logConfiguration = '--log-configuration ' + options.logConfiguration;
   }
-  var args = [classpath, MULTI_LANG_DAEMON_CLASS, propertiesFile, logConfiguration];
+  //var args = [classpath, MULTI_LANG_DAEMON_CLASS, propertiesFile, logConfiguration];
+  var logConfiguration = options.logConfiguration ? ['--log-configuration', options.logConfiguration] : [];
+  var args = ['-cp', classpath, MULTI_LANG_DAEMON_CLASS, '--properties-file', options.properties, ...logConfiguration];
   var cmd = java + ' ' + args.join(' ');
 
   console.log("==========================================================");
